@@ -24,5 +24,5 @@ This repository implements a **multi-task fine-tuning** pilot study using **BERT
 ## Environment Setup
 1. **Clone the repo**  
    ```bash
-   git clone https://github.com/your-username/emo-mtl-pilot.git
+   git clone https://github.com/DT-1997/xjco2121-data-mining-report.git
    cd emo-mtl-pilot
