@@ -1,89 +1,80 @@
 # preprocess.py
 
 import os
+import json
 import numpy as np
 from datasets import load_dataset, DatasetDict
 from transformers import AutoTokenizer
 
 def load_and_tokenize(
-    ds_name: str,
+    ds_name: str = "goemotions",
     tokenizer_name: str = "bert-base-uncased",
     max_length: int = 128,
     save_to_disk: bool = False
-):
+) -> DatasetDict:
     """
-    Prefer loading local pre-tokenized JSONL splits from data/{ds_name}/;
-    if they are missing, download from HF and split + tokenize.
-    Returns a DatasetDict with 'train','validation','test'.
+    Load a dataset from local JSONL under data/{ds_name}/, then tokenize texts
+    and prepare multi-hot labels for multi-label classification.
+    If local files are missing, fall back to the HF repo for GoEmotions.
     """
     data_dir = os.path.join("data", ds_name)
-    local_paths = {
+    os.makedirs(data_dir, exist_ok=True)
+
+    # 1) Gather expected file paths for train/validation/test
+    files = {
         split: os.path.join(data_dir, f"{split}.jsonl")
         for split in ("train", "validation", "test")
     }
-    has_local = all(os.path.exists(path) for path in local_paths.values())
+    have_local = all(os.path.exists(path) for path in files.values())
 
-    if ds_name == "goemotions" and not has_local:
-        # Download & split
-        raw = load_dataset("mrm8488/goemotions")
-        if list(raw.keys()) == ["train"]:
-            full = raw["train"]
-            tmp  = full.train_test_split(test_size=0.2, seed=42)
-            vt   = tmp["test"].train_test_split(test_size=0.5, seed=42)
-            raw = DatasetDict({
-                "train":      tmp["train"],
-                "validation": vt["train"],
-                "test":       vt["test"]
-            })
-        # Tokenization + multi-hot happens below
-    else:
-        # Local JSONL already contains input_ids, attention_mask, labels, intensity
-        raw = load_dataset("json", data_files=local_paths)
+    # 2) If local JSONL exist, load & return immediately
+    #    (they already have input_ids, attention_mask, labels)
+    if have_local:
+        ds = load_dataset("json", data_files=files)
+        ds.set_format(type="torch")
+        return ds
 
-        # Set formats and return immediately
-        raw.set_format(type="torch")
-        return raw
+    # 3) Otherwise download simplified GoEmotions from HF
+    ds = load_dataset("google-research-datasets/go_emotions", "simplified")
+    # ds now has splits: train, validation, test
 
-    # At this point, raw has splits of plain text + label indices + intensity
-    # Initialize tokenizer
+    # 4) Initialize tokenizer
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
 
+    # 5) Define batch preprocessing: tokenize + multi-hot encode labels
     def preprocess_batch(batch):
-        # tokenize text
         enc = tokenizer(
             batch["text"],
             padding="max_length",
             truncation=True,
-            max_length=max_length
+            max_length=max_length,
         )
-        # multi-hot encode 'labels'
         if "labels" in batch:
-            num_labels = 28 if ds_name == "goemotions" else len(batch["labels"][0])
-            multi_hot = []
-            for lbls in batch["labels"]:
-                vec = np.zeros(num_labels, dtype=int)
-                for idx in lbls:
-                    vec[idx] = 1
-                multi_hot.append(vec.tolist())
-            enc["labels"] = multi_hot
-        # pass through 'intensity' if present
-        if "intensity" in batch:
-            enc["intensity"] = batch["intensity"]
+            num_labels = 28
+            mh = []
+            for idxs in batch["labels"]:
+                vec = [0] * num_labels
+                for i in idxs:
+                    vec[i] = 1
+                mh.append(vec)
+            enc["labels"] = mh
         return enc
 
-    # apply preprocessing to each split
-    ds = raw.map(
+    # 6) Apply the above to all splits
+    ds = ds.map(
         preprocess_batch,
         batched=True,
-        remove_columns=raw["train"].column_names,
+        remove_columns=ds["train"].column_names,
         desc=f"Tokenizing {ds_name}"
     )
 
+    # 7) Convert to torch tensors (so downstream Trainer sees Tensors)
     ds.set_format(type="torch")
+
     return ds
 
 
 if __name__ == "__main__":
-    ds = load_and_tokenize("goemotions")
-    print(ds.keys())         # should show train, validation, test
-    print(ds["train"][0])    # inspect first example
+    ds = load_and_tokenize("goemotions", max_length=128, save_to_disk=False)
+    print("Available splits:", ds.keys())
+    print("Sample:", ds["train"][0])
