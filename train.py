@@ -44,6 +44,7 @@ def main():
         max_length=128,
         save_to_disk=False  # we already have the JSONL files
     )
+    print("Available splits:", ds.keys())   # 新增这一行
 
     # 2. Initialize tokenizer + model
     tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
@@ -58,16 +59,17 @@ def main():
     # 3. Set up training arguments
     args = TrainingArguments(
         output_dir='outputs/goe_run1',
+        eval_strategy='epoch',       # ← use 'eval_strategy' instead of 'evaluation_strategy'
+        save_strategy='epoch',       # ← this stays the same
         per_device_train_batch_size=16,
         per_device_eval_batch_size=32,
         learning_rate=3e-5,
         num_train_epochs=5,
-        evaluation_strategy='epoch',
-        save_strategy='epoch',
         logging_dir='logs',
         load_best_model_at_end=True,
         metric_for_best_model='cls_macro_f1',
-        fp16=True,  # enable mixed precision if supported
+        fp16=True,
+        report_to="none",
     )
 
     # 4. Create Trainer and start training
@@ -77,7 +79,6 @@ def main():
         train_dataset=ds['train'],
         eval_dataset=ds['validation'],
         compute_metrics=compute_metrics,
-        tokenizer=tokenizer
     )
 
     trainer.train()
