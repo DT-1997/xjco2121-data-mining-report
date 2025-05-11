@@ -111,6 +111,11 @@ def main():
     print(f"Macro Recall:    {test_res['eval_macro_recall']:.4f}")
     print(f"Macro F1:        {test_res['eval_macro_f1']:.4f}")
 
+    # 7) Save the final model to the output directory
+    model.save_pretrained("outputs/full_ft/final_model")  # Save the model weights and configuration
+    tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")  # Load tokenizer
+    tokenizer.save_pretrained("outputs/full_ft/final_model")  # Save the tokenizer
+
     # Save the training metrics to CSV for future analysis
     trainer.save_metrics("outputs/full_ft")
 
