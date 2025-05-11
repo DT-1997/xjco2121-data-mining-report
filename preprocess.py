@@ -16,6 +16,7 @@ def load_and_tokenize(
     Load a dataset from local JSONL under data/{ds_name}/, then tokenize texts
     and prepare multi-hot labels for multi-label classification.
     If local files are missing, fall back to the HF repo for GoEmotions.
+    Optionally save to disk as JSONL files.
     """
     data_dir = os.path.join("data", ds_name)
     os.makedirs(data_dir, exist_ok=True)
@@ -70,6 +71,19 @@ def load_and_tokenize(
 
     # 7) Convert to torch tensors (so downstream Trainer sees Tensors)
     ds.set_format(type="torch")
+
+    # 8) Save the tokenized dataset to disk as JSONL if requested
+    if save_to_disk:
+        for split in ("train", "validation", "test"):
+            split_data = ds[split]
+            # Save to JSONL
+            with open(files[split], "w") as f:
+                for example in split_data:
+                    # Convert tensor to list for JSON serialization
+                    example = {key: value.tolist() if isinstance(value, np.ndarray) or hasattr(value, 'tolist') else value 
+                               for key, value in example.items()}
+                    json.dump(example, f)
+                    f.write("\n")
 
     return ds
 
