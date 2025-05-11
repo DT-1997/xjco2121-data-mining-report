@@ -1,38 +1,53 @@
 import torch
+import random
+import numpy as np
+import pandas as pd
 from transformers import Trainer, TrainingArguments, AutoTokenizer
 from preprocess import load_and_tokenize
 from model import build_model
 from sklearn.metrics import precision_recall_fscore_support
+from torch.utils.data import DataLoader
 
+# Set random seed for reproducibility
+def set_seed(seed=42):
+    random.seed(seed)  # Python random seed
+    np.random.seed(seed)  # NumPy random seed
+    torch.manual_seed(seed)  # PyTorch random seed
+    torch.cuda.manual_seed_all(seed)  # PyTorch CUDA seed (for GPU)
+    # Optional: Ensure deterministic behavior (for reproducibility)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
+# Custom Trainer class to ensure labels are cast to float32 before loss computation
 class CustomTrainer(Trainer):
-    """
-    Custom Trainer class that ensures labels are cast to float32
-    before computing the loss, as BCEWithLogitsLoss requires float type labels.
-    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.epoch_metrics = []  # To log metrics for each epoch
+
     def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
-        # Ensure the labels are float32
-        labels = inputs.get("labels")
+        labels = inputs.get("labels")  # Get the labels from inputs
         if labels is not None:
-            inputs["labels"] = labels.to(torch.float32)
+            inputs["labels"] = labels.to(torch.float32)  # Convert labels to float32
+        loss, outputs = super().compute_loss(model, inputs, return_outputs=True)  # Compute loss using the parent class method
+        return (loss, outputs) if return_outputs else loss  # Return loss and outputs (if needed)
 
-        # Call the original Trainer's compute_loss method
-        loss, outputs = super().compute_loss(model, inputs, return_outputs=True)
+    def log_metrics(self, metrics):
+        self.epoch_metrics.append(metrics)  # Log metrics for each epoch
 
-        return (loss, outputs) if return_outputs else loss
+    def save_metrics(self, output_dir):
+        # Save all metrics as a CSV file for future visualization
+        metrics_df = pd.DataFrame(self.epoch_metrics)
+        metrics_df.to_csv(f"{output_dir}/training_metrics.csv", index=False)
 
-
+# Function to compute evaluation metrics (precision, recall, and F1 score)
 def compute_metrics(eval_pred):
-    """
-    Compute macro-averaged precision, recall, and F1 for multi-label classification.
-    """
     logits, labels = eval_pred
-    # Apply sigmoid and threshold at 0.5 for multi-label classification
-    probs = torch.sigmoid(torch.from_numpy(logits)).numpy()
-    preds = (probs > 0.5).astype(int)
+    probs = torch.sigmoid(torch.from_numpy(logits)).numpy()  # Apply sigmoid to logits for multi-label classification
+    preds = (probs > 0.5).astype(int)  # Convert probabilities to binary predictions
 
+    # Calculate precision, recall, and F1 score
     precision, recall, f1, _ = precision_recall_fscore_support(
-        labels, preds, average="macro", zero_division=0
+        labels, preds, average="macro", zero_division=0  # Use macro average for multi-label classification
     )
     return {
         "macro_precision": precision,
@@ -41,58 +56,63 @@ def compute_metrics(eval_pred):
     }
 
 def main():
+    # Set random seed for reproducibility
+    set_seed(42)
+
     # 1) Load and preprocess GoEmotions dataset
     ds = load_and_tokenize(
-        ds_name="goemotions",
-        tokenizer_name="bert-base-uncased",
-        max_length=128,
-        save_to_disk=False
+        ds_name="goemotions",  # Dataset name
+        tokenizer_name="bert-base-uncased",  # Pretrained BERT tokenizer
+        max_length=128,  # Max sequence length for tokenization
+        save_to_disk=False  # Don't save the tokenized dataset to disk
     )
 
-    # 2) Build the model for multi-label classification
+    # 2) Build the multi-label classification model
     model = build_model(
-        model_name_or_path="bert-base-uncased",
-        num_labels=28
+        model_name_or_path="bert-base-uncased",  # Pretrained BERT model
+        num_labels=28  # Number of classes (labels)
     )
 
-    # 3) Prepare TrainingArguments with full fine-tuning settings
+    # 3) Set up training arguments with full fine-tuning settings
     args = TrainingArguments(
-        output_dir="outputs/full_ft",  # output directory
-        eval_strategy="epoch",         # evaluate each epoch
-        save_strategy="epoch",         # save each epoch
-        per_device_train_batch_size=16,
-        per_device_eval_batch_size=32,
-        learning_rate=2e-5,
-        num_train_epochs=10,
-        logging_dir="logs",
-        load_best_model_at_end=True,
-        metric_for_best_model="macro_f1",  # Use F1 score for best model selection
-        greater_is_better=True,
-        fp16=True,  # mixed precision if supported
-        report_to="none",
-        remove_unused_columns=False,  # keep the labels column
-        label_names=["labels"],  # explicitly name the label column
+        output_dir="outputs/full_ft",  # Output directory
+        eval_strategy="epoch",  # Evaluate the model after each epoch
+        save_strategy="epoch",  # Save the model after each epoch
+        per_device_train_batch_size=16,  # Training batch size per device
+        per_device_eval_batch_size=32,  # Evaluation batch size per device
+        learning_rate=2e-5,  # Learning rate
+        num_train_epochs=10,  # Number of training epochs
+        logging_dir="logs",  # Directory for logging
+        load_best_model_at_end=True,  # Load the best model at the end of training
+        metric_for_best_model="macro_f1",  # Use F1 score for selecting the best model
+        greater_is_better=True,  # Higher F1 score is better
+        fp16=True,  # Use mixed precision training if supported
+        report_to="none",  # No need to report to external services
+        remove_unused_columns=False,  # Keep the labels column in the dataset
+        label_names=["labels"],  # Explicitly name the label column
     )
 
-    # 4) Initialize the custom Trainer
+    # 4) Initialize the custom trainer
     trainer = CustomTrainer(
         model=model,
         args=args,
-        train_dataset=ds["train"],
-        eval_dataset=ds["validation"],
-        compute_metrics=compute_metrics,
+        train_dataset=ds["train"],  # Training dataset
+        eval_dataset=ds["validation"],  # Validation dataset
+        compute_metrics=compute_metrics,  # Function to compute evaluation metrics
     )
 
-    # 5) Fine-tune the model
+    # 5) Start training the model
     trainer.train()
 
-    # 6) Evaluate on the test set
+    # 6) Evaluate the model on the test set
     test_res = trainer.evaluate(eval_dataset=ds["test"])
     print("\n=== Final Test Results ===")
     print(f"Macro Precision: {test_res['eval_macro_precision']:.4f}")
     print(f"Macro Recall:    {test_res['eval_macro_recall']:.4f}")
     print(f"Macro F1:        {test_res['eval_macro_f1']:.4f}")
 
+    # Save the training metrics to CSV for future analysis
+    trainer.save_metrics("outputs/full_ft")
 
 if __name__ == "__main__":
     main()
