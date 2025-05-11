@@ -6,7 +6,6 @@ from transformers import Trainer, TrainingArguments, AutoTokenizer
 from preprocess import load_and_tokenize
 from model import build_model
 from sklearn.metrics import precision_recall_fscore_support
-from torch.utils.data import DataLoader
 
 # Set random seed for reproducibility
 def set_seed(seed=42):
@@ -32,12 +31,8 @@ class CustomTrainer(Trainer):
         return (loss, outputs) if return_outputs else loss  # Return loss and outputs (if needed)
 
     def log_metrics(self, metrics):
+        print(f"Logging metrics: {metrics}")  # Debugging log to check if metrics are being logged
         self.epoch_metrics.append(metrics)  # Log metrics for each epoch
-
-    def save_metrics(self, output_dir):
-        # Save all metrics as a CSV file for future visualization
-        metrics_df = pd.DataFrame(self.epoch_metrics)
-        metrics_df.to_csv(f"{output_dir}/training_metrics.csv", index=False)
 
 # Function to compute evaluation metrics (precision, recall, and F1 score)
 def compute_metrics(eval_pred):
@@ -81,7 +76,7 @@ def main():
         per_device_train_batch_size=16,  # Training batch size per device
         per_device_eval_batch_size=32,  # Evaluation batch size per device
         learning_rate=2e-5,  # Learning rate
-        num_train_epochs=10,  # Number of training epochs
+        num_train_epochs=10,  # Number of training epochs (set to 1 for testing)
         logging_dir="logs",  # Directory for logging
         load_best_model_at_end=True,  # Load the best model at the end of training
         metric_for_best_model="macro_f1",  # Use F1 score for selecting the best model
@@ -115,9 +110,6 @@ def main():
     model.save_pretrained("outputs/full_ft/final_model")  # Save the model weights and configuration
     tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")  # Load tokenizer
     tokenizer.save_pretrained("outputs/full_ft/final_model")  # Save the tokenizer
-
-    # Save the training metrics to CSV for future analysis
-    trainer.save_metrics("outputs/full_ft")
 
 if __name__ == "__main__":
     main()
