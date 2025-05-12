@@ -59,7 +59,8 @@ def main():
         ds_name="goemotions",  # Dataset name
         tokenizer_name="bert-base-uncased",  # Pretrained BERT tokenizer
         max_length=128,  # Max sequence length for tokenization
-        save_to_disk=False  # Don't save the tokenized dataset to disk
+        save_to_disk=False,  # Don't save the tokenized dataset to disk
+        dataset_version="goemotions"
     )
 
     # 2) Build the multi-label classification model
