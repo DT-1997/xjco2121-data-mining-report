@@ -15,12 +15,11 @@ This repository implements a BERT-based multi-label emotion classification syste
 ├── data/
 │   ├── goemotions/          # Original GoEmotions dataset
 │   └── goemotions_augmented/ # Augmented version of GoEmotions
-├── src/
-│   ├── preprocess.py        # Data loading and preprocessing
-│   ├── model.py            # BERT model definition
-│   └── train.py            # Training script
-├── outputs/                # Model checkpoints and saved models
-├── logs/                  # Training logs
+├── preprocess.py        # Data loading and preprocessing
+├── model.py            # BERT model definition
+├── train.py            # Training script
+├── plot.py            # plot script
+├── outputs/            # Model checkpoints and saved information
 └── README.md             # This file
 ```
 
