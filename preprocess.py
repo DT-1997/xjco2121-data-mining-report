@@ -7,95 +7,110 @@ from datasets import load_dataset, DatasetDict
 from transformers import AutoTokenizer
 
 def load_and_tokenize(
-    ds_name: str = "goemotions",
     tokenizer_name: str = "bert-base-uncased",
     max_length: int = 128,
     save_to_disk: bool = False,
     dataset_version: str = "goemotions"
 ) -> DatasetDict:
     """
-    Load a dataset from local JSONL under data/{ds_name}/, then tokenize texts
-    and prepare multi-hot labels for multi-label classification.
-    If local files are missing, fall back to the HF repo for the selected dataset.
-    Optionally save to disk as JSONL files.
+    Load a dataset from local JSONL files under data/{dataset_version}/,
+    tokenize the text, and prepare multi-hot labels for multi-label classification.
+    If local files are missing, fall back to the Hugging Face Hub.
+    Optionally save the tokenized dataset back to disk as JSONL files.
+
+    Args:
+        tokenizer_name (str): Pretrained tokenizer name or path.
+        max_length (int): Maximum token sequence length.
+        save_to_disk (bool): Whether to save tokenized splits to disk.
+        dataset_version (str): "goemotions" or "goemotions-augmented".
+
+    Returns:
+        DatasetDict: A Hugging Face DatasetDict with train/validation/test splits.
     """
-    data_dir = os.path.join("data", ds_name)
+    # Build the directory name by replacing '-' with '_'
+    dir_name = dataset_version.replace("-", "_")
+    data_dir = os.path.join("data", dir_name)
     os.makedirs(data_dir, exist_ok=True)
 
-    # 1) Gather expected file paths for train/validation/test
+    # Define expected file paths for train/validation/test
     files = {
         split: os.path.join(data_dir, f"{split}.jsonl")
         for split in ("train", "validation", "test")
     }
     have_local = all(os.path.exists(path) for path in files.values())
 
-    # 2) If local JSONL exist, load & return immediately
-    #    (they already have input_ids, attention_mask, labels)
+    # If all local JSONL files exist, load them immediately
     if have_local:
-        ds = load_dataset("json", data_files=files)
-        ds.set_format(type="torch")
-        return ds
+        dataset = load_dataset("json", data_files=files)
+        dataset.set_format(type="torch")
+        return dataset
 
-    # 3) Load dataset based on the version selected
+    # Load dataset from HF hub based on version
     if dataset_version == "goemotions":
-        ds = load_dataset("google-research-datasets/go_emotions", "simplified")
+        dataset = load_dataset("google-research-datasets/go_emotions", "simplified")
     elif dataset_version == "goemotions-augmented":
-        ds = load_dataset("jellyshroom/go_emotions_augmented")
+        dataset = load_dataset("jellyshroom/go_emotions_augmented")
     else:
-        raise ValueError("Unsupported dataset version. Choose either 'goemotions' or 'goemotions-augmented'.")
+        raise ValueError("Unsupported dataset_version. Choose 'goemotions' or 'goemotions-augmented'.")
 
-    # 4) Initialize tokenizer
+    # Initialize the tokenizer
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
 
-    # 5) Define batch preprocessing: tokenize + multi-hot encode labels
+    # Define preprocessing function for each batch
     def preprocess_batch(batch):
-        enc = tokenizer(
+        # Tokenize the text samples
+        encoding = tokenizer(
             batch["text"],
             padding="max_length",
             truncation=True,
             max_length=max_length,
         )
+        # If labels exist, convert them to multi-hot vectors
         if "labels" in batch:
             num_labels = 28
-            mh = []
-            for idxs in batch["labels"]:
-                vec = [0] * num_labels
-                for i in idxs:
-                    vec[i] = 1
-                mh.append(vec)
-            enc["labels"] = mh
-        return enc
+            multi_hot = []
+            for label_indices in batch["labels"]:
+                vector = [0] * num_labels
+                for idx in label_indices:
+                    vector[idx] = 1
+                multi_hot.append(vector)
+            encoding["labels"] = multi_hot
+        return encoding
 
-    # 6) Apply the above to all splits
-    ds = ds.map(
+    # Apply the preprocessing to all splits, removing original columns
+    dataset = dataset.map(
         preprocess_batch,
         batched=True,
-        remove_columns=ds["train"].column_names,
-        desc=f"Tokenizing {ds_name}"
+        remove_columns=dataset["train"].column_names,
+        desc=f"Tokenizing {dataset_version}"
     )
 
-    # 7) Convert to torch tensors (so downstream Trainer sees Tensors)
-    ds.set_format(type="torch")
+    # Set the format to PyTorch tensors
+    dataset.set_format(type="torch")
 
-    # 8) Save the tokenized dataset to disk as JSONL if requested
+    # Optionally save tokenized data back to disk as JSONL
     if save_to_disk:
         for split in ("train", "validation", "test"):
-            split_data = ds[split]
-            # Save to JSONL
-            with open(files[split], "w") as f:
-                for example in split_data:
-                    # Convert tensor to list for JSON serialization
-                    example = {key: value.tolist() if isinstance(value, np.ndarray) or hasattr(value, 'tolist') else value 
-                               for key, value in example.items()}
-                    json.dump(example, f)
+            with open(files[split], "w", encoding="utf-8") as f:
+                for example in dataset[split]:
+                    # Convert tensor or numpy arrays to lists for JSON serialization
+                    serializable = {
+                        key: value.tolist() if hasattr(value, "tolist") else value
+                        for key, value in example.items()
+                    }
+                    json.dump(serializable, f)
                     f.write("\n")
 
-    return ds
+    return dataset
 
 
 if __name__ == "__main__":
-    # Example: Choose 'goemotions' or 'goemotions-augmented'
-    ds = load_and_tokenize("goemotions", max_length=128, save_to_disk=True, dataset_version="goemotions-augmented")
+    # Example usage: choose between 'goemotions' or 'goemotions-augmented'
+    ds = load_and_tokenize(
+        tokenizer_name="bert-base-uncased",
+        max_length=128,
+        save_to_disk=True,
+        dataset_version="goemotions"
+    )
     print("Available splits:", ds.keys())
-    print("Sample:", ds["train"][0])
-
+    print("Sample example from train split:", ds["train"][0])
