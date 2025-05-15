@@ -97,6 +97,3 @@ The model is evaluated using macro-averaged precision, recall, and F1 score acro
 - The model automatically handles multi-label classification
 - Checkpoints are saved after each epoch
 - The best model is selected based on validation F1 score
-
-## License
-This project is licensed under the MIT License - see the LICENSE file for details.
