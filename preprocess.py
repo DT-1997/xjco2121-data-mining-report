@@ -105,7 +105,6 @@ def load_and_tokenize(
 
 
 if __name__ == "__main__":
-    # Example usage: choose between 'goemotions' or 'goemotions-augmented'
     ds = load_and_tokenize(
         tokenizer_name="bert-base-uncased",
         max_length=128,
