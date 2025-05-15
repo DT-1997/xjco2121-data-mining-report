@@ -20,8 +20,8 @@ This repository implements a BERT-based multi-label emotion classification syste
 ├── train.py            # Training script
 ├── plot.py            # plot script
 ├── outputs/            # Model checkpoints and saved information
-├── trainer_state_origin.json # Original trainer state record
-├── trainer_state_augmented.json # Augmented trainer state record
+├── trainer_state_origin.json # Used for ploting origin result graphs
+├── trainer_state_augmented.json # Used for ploting augmented result graphs
 └── README.md             # This file
 ```
 
